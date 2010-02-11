@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -6,7 +6,7 @@ using System.Text;
 using Data;
 using Data.Subscriptions;
 
-namespace Px
+namespace Examples.TwitterConsole
 {
     class Program
     {
@@ -33,7 +33,7 @@ namespace Px
             var frankPosts = client.Table<Post>().Where(f => f.From == "Frank");
 
             var ch = client.Subscribe(frankPosts);
-
+			
             System.Threading.Thread.Sleep(10000);
         }
 

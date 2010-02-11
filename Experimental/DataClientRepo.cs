@@ -7,15 +7,6 @@ using System.IO;
 
 namespace Data.Subscriptions
 {
-    public class Server
-    {
-        public string Host { get; set; }
-
-        public Server(string host) {
-            Host = host;
-        }
-    }
-
     public class ClientRepo
     {
         Dictionary<CompiledQuery, IChannel> _channels = new Dictionary<CompiledQuery, IChannel>();
@@ -50,12 +41,6 @@ namespace Data.Subscriptions
 
     }
 
-    public class Post
-    {
-        public string From { get; private set; }
-        public string Text { get; set; }
-    }
-
     public class ServerChannel<T> : DataChannelBase<T>
     {
         Server Server { get; set; }
@@ -68,11 +53,12 @@ namespace Data.Subscriptions
             Server = server;
             ClientId = clientId;
             Query = cq;
-            var s = ServerInterfaces.GetInterface(server, clientId);
+            var s = ClientServerInterfaces.GetInterface(server, clientId);
+			s.Register(this);
         }
     }
 
-    public class ServerInterface
+    public class ClientServerInterface
     {
         List<object> _channels = new List<object>();
 
@@ -85,16 +71,20 @@ namespace Data.Subscriptions
 
         TimeSpan ConnectRetryTimeSpan { get; set; }
 
-        public ServerInterface(Server server, string clientId) {
+        public ClientServerInterface(Server server, string clientId) {
             Server = server;
             ClientId = clientId;
-            ConnectRetryTimeSpan = TimeSpan.FromSeconds(10);
+            ConnectRetryTimeSpan = TimeSpan.FromSeconds(5);
 
             var recvTh = new System.Threading.Thread((System.Threading.ThreadStart)delegate {
                 RecvLoop();
             });
             recvTh.Start();
         }
+		
+		public void Register<T>(ServerChannel<T> ch) {
+			_channels.Add(ch);
+		}
 
         string Url {
             get {
@@ -118,29 +108,36 @@ namespace Data.Subscriptions
         }
 
         void Process(string msg) {
-
-            Console.WriteLine("PROCESSING " + msg);
-
+			try {
+	            Console.WriteLine("PROCESSING " + msg);
+			}
+			catch (Exception error) {
+				OnProcessError(error);
+			}
         }
 
         int ParseAndProcessMessages(byte[] buffer, int bufferLength) {
-            var endIdx = -1;
-            for (int i = 0; i < bufferLength-3 && endIdx < 0; i++) {
-                if (buffer[i] == ')' && buffer[i + 1] == ';' && buffer[i + 2] == '\r' && buffer[i + 3] == '\n') {
-                    endIdx = i;
-                }
-            }
-            if (endIdx < 0) {
-                return bufferLength;
-            }
-            var msgLen = endIdx + 4;
-            var msg = System.Text.Encoding.UTF8.GetString(buffer, 0, msgLen);
-
-            Array.Copy(buffer, msgLen, buffer, 0, bufferLength - msgLen);
-
-            Process(msg);
-
-            return msgLen;
+			var n = bufferLength;
+			
+			for (;;) {
+	            var endIdx = -1;
+	            for (int i = 0; i < n-3 && endIdx < 0; i++) {
+	                if (buffer[i] == ')' && buffer[i + 1] == ';' && buffer[i + 2] == '\r' && buffer[i + 3] == '\n') {
+	                    endIdx = i;
+	                }
+	            }
+	            if (endIdx < 0) {
+	                return n;
+	            }
+	            var msgLen = endIdx + 4;
+	            var msg = System.Text.Encoding.UTF8.GetString(buffer, 0, msgLen);
+	
+	            Array.Copy(buffer, msgLen, buffer, 0, n - msgLen);
+				
+				n -= msgLen;
+	
+	            Process(msg);
+			}
         }
 
         void RecvLoop() {
@@ -194,6 +191,7 @@ namespace Data.Subscriptions
             //
             // Register the channels that haven't been
             //
+			throw new NotImplementedException();
         }
 
         void OnProcessError(Exception error) {
@@ -213,15 +211,15 @@ namespace Data.Subscriptions
         }
     }
 
-    public class ServerInterfaces
+    public class ClientServerInterfaces
     {
-        static Dictionary<string, ServerInterface> _pollers = new Dictionary<string, ServerInterface>();
+        static Dictionary<string, ClientServerInterface> _pollers = new Dictionary<string, ClientServerInterface>();
 
-        public static ServerInterface GetInterface(Server server, string clientId) {
+        public static ClientServerInterface GetInterface(Server server, string clientId) {
             var key = server.Host + "/" + clientId;
-            ServerInterface p;
+            ClientServerInterface p;
             if (!_pollers.TryGetValue(key, out p)) {
-                p = new ServerInterface(server, clientId);
+                p = new ClientServerInterface(server, clientId);
                 _pollers.Add(key, p);
             }
             return p;

@@ -268,7 +268,6 @@ namespace Data
 				
 				while (reader.Read ()) {
 					var obj = Activator.CreateInstance (map.MappedType);
-					map.SetConnection (obj, this);
 					for (int i = 0; i < cols.Length; i++) {
 						if (cols[i] == null)
 							continue;
@@ -366,8 +365,6 @@ namespace Data
 				map.SetAutoIncPK (obj, Convert.ToInt64 (id));
 			}
 			
-			map.SetConnection (obj, this);
-			
 			return count;
 		}
 
@@ -396,8 +393,6 @@ namespace Data
 				throw new NotSupportedException ("Cannot update " + map.TableName + ": it has no PK");
 			}
 			
-			map.SetConnection (obj, this);
-			
 			var cols = from p in map.Columns
 				where p != pk
 				select p;
@@ -424,7 +419,6 @@ namespace Data
 		{
 			var map = GetMapping (obj.GetType ());
 			var pk = map.PK;
-			map.SetConnection (obj, null);
 			if (pk == null) {
 				throw new NotSupportedException ("Cannot delete " + map.TableName + ": it has no PK");
 			}
@@ -468,8 +462,6 @@ namespace Data
 		Column _autoPk = null;
 		Column[] _insertColumns = null;
 
-		PropertyInfo _connectionProp = null;
-
 		public TableMapping (Type type)
 		{
 			MappedType = type;
@@ -479,7 +471,6 @@ namespace Data
 			foreach (var p in props) {
 				if (p.CanWrite) {
 					if (p.PropertyType.IsSubclassOf (typeof(DbConnection))) {
-						_connectionProp = p;
 					} else {
 						cols.Add (new PropColumn (p));
 					}
@@ -498,13 +489,6 @@ namespace Data
 
 		public bool ContainsAutoIncPK {
 			get { return _autoPk != null; }
-		}
-
-		public void SetConnection (object obj, DbConnection conn)
-		{
-			if (_connectionProp != null) {
-				_connectionProp.SetValue (obj, conn, null);
-			}
 		}
 
 		public void SetAutoIncPK (object obj, long id)

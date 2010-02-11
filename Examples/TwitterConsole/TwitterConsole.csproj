@@ -39,6 +39,7 @@
     <Compile Include="..\..\Experimental\DataClientRepo.cs" />
     <Compile Include="..\..\Experimental\DataSubscriptions.cs" />
     <Compile Include="..\..\Experimental\Data.cs" />
+    <Compile Include="..\..\Experimental\DataServerRepo.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
 </Project>

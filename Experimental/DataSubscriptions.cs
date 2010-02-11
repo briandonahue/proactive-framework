@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -19,7 +19,7 @@ namespace Data.Subscriptions
 
     public interface IDataChannel<T> : IChannel
     {
-        IEnumerable<T> AllValues { get; }
+        IEnumerable<T> All { get; }
 
         event Action<T> ValueInserted;
         event Action<T> ValueUpdated;
@@ -35,7 +35,7 @@ namespace Data.Subscriptions
 
         List<T> _allValues = new List<T>();
 
-        public IEnumerable<T> AllValues { get { return _allValues; } }
+        public IEnumerable<T> All { get { return _allValues; } }
         
         public event Action<T> ValueInserted;
         public event Action<T> ValueUpdated;

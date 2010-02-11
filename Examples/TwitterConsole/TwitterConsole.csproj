@@ -40,6 +40,7 @@
     <Compile Include="..\..\Experimental\DataSubscriptions.cs" />
     <Compile Include="..\..\Experimental\Data.cs" />
     <Compile Include="..\..\Experimental\DataServerRepo.cs" />
+    <Compile Include="..\Twitter.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
 </Project>

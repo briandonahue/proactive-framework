@@ -814,7 +814,7 @@ namespace Data
 			return Orm.Quote (ident);
 		}
 
-		public CompiledQuery Compile ()
+		public SqlQuery Compile ()
 		{
 			var cmdText = "select * from " + Quote (Table.TableName);
 			var args = new List<object> ();
@@ -832,13 +832,13 @@ namespace Data
 			if (_offset.HasValue) {
 				cmdText += " offset " + _limit.Value;
 			}
-			return new CompiledQuery { CommandText = cmdText, Arguments = args.ToArray () };
+			return new SqlQuery (typeof(T).FullName, cmdText, args.ToArray ());
 		}
 
 		private IDbCommand GenerateCommand ()
 		{
 			var cq = Compile ();
-			return Connection.CreateCommand (cq.CommandText, cq.Arguments);
+			return Connection.CreateCommand (cq.SqlText, cq.Arguments);
 		}
 
 		class CompileResult
@@ -935,9 +935,52 @@ namespace Data
 		
 	}
 
-	public class CompiledQuery
+	public class SqlQuery
 	{
-		public string CommandText { get; set; }
-		public object[] Arguments { get; set; }
+		public string FullTypeName { get; private set; }
+		public string SqlText { get; private set; }
+		public object[] Arguments { get; private set; }
+
+		public SqlQuery ()
+		{
+			FullTypeName = "";
+			SqlText = "";
+			Arguments = new object[0];
+		}
+
+		public SqlQuery (string fullTypeName, string commandText, object[] args)
+		{
+			FullTypeName = fullTypeName;
+			SqlText = commandText;
+			Arguments = args;
+		}
+
+		public override bool Equals (object obj)
+		{
+			var q = obj as SqlQuery;
+			if (q == null)
+				return false;
+			if (FullTypeName != q.FullTypeName)
+				return false;
+			if (SqlText != q.SqlText)
+				return false;
+			if (Arguments.Length != q.Arguments.Length)
+				return false;
+			for (int i = 0; i < Arguments.Length; i++) {
+				if (!Arguments[i].Equals (q.Arguments[i]))
+					return false;
+			}
+			return true;
+		}
+
+		public override int GetHashCode ()
+		{
+			var hash = FullTypeName.GetHashCode ();
+			hash += SqlText.GetHashCode ();
+			if (Arguments.Length > 0) {
+				hash += Arguments[0].GetHashCode ();
+			}
+			return hash;
+		}
 	}
 }

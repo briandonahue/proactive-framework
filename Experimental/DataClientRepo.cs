@@ -9,13 +9,13 @@ namespace Data.Subscriptions
 {
 	public class ClientRepo
 	{
-		Dictionary<CompiledQuery, IChannel> _channels = new Dictionary<CompiledQuery, IChannel> ();
+		Dictionary<SqlQuery, IChannel> _channels = new Dictionary<SqlQuery, IChannel> ();
 
-		public Server Server { get; private set; }
+		public ServerRef Server { get; private set; }
 		public string ClientId { get; private set; }
 		public Orm Orm { get; private set; }
 
-		public ClientRepo (Server server, string clientId)
+		public ClientRepo (ServerRef server, string clientId)
 		{
 			Server = server;
 			ClientId = clientId;
@@ -46,18 +46,18 @@ namespace Data.Subscriptions
 
 	public class ServerChannel<T> : DataChannelBase<T>
 	{
-		Server Server { get; set; }
+		ServerRef Server { get; set; }
 		string ChannelId { get; set; }
 		string ClientId { get; set; }
 
-		CompiledQuery Query { get; set; }
+		SqlQuery Query { get; set; }
 
-		public ServerChannel (Server server, string clientId, CompiledQuery cq)
+		public ServerChannel (ServerRef server, string clientId, SqlQuery cq)
 		{
 			Server = server;
 			ClientId = clientId;
 			Query = cq;
-			var s = ClientServerInterfaces.GetInterface (server, clientId);
+			var s = ClientServerInterfaces.GetInterface (server, clientId, typeof(T).Assembly);
 			s.Register (this);
 		}
 	}
@@ -66,24 +66,29 @@ namespace Data.Subscriptions
 	{
 		List<object> _channels = new List<object> ();
 
-		Server Server { get; set; }
+		ServerRef Server { get; set; }
 		string ClientId { get; set; }
 
 		HttpWebResponse _resp;
 		Stream _respStream;
 		DateTime _lastConnectTryTime;
+		System.Reflection.Assembly _typesAsm;
 
 		TimeSpan ConnectRetryTimeSpan { get; set; }
 
-		string _url;
+		string _streamUrl;
+		string _rpcUrl;
 
-		public ClientServerInterface (Server server, string clientId)
+		public ClientServerInterface (ServerRef server, string clientId, System.Reflection.Assembly typesAsm)
 		{
+			_typesAsm = typesAsm;
+			
 			Server = server;
 			ClientId = clientId;
 			ConnectRetryTimeSpan = TimeSpan.FromSeconds (5);
 			
-			_url = Server.Host + "/" + ClientId + "?key=" + Keys.GenKey (ClientId);
+			_streamUrl = Server.Host + "/" + ClientId + "/stream?key=";
+			_rpcUrl = Server.Host + "/" + ClientId + "/rpc?key=";
 			
 			var recvTh = new System.Threading.Thread ((System.Threading.ThreadStart)delegate { RecvLoop (); });
 			recvTh.Start ();
@@ -117,7 +122,11 @@ namespace Data.Subscriptions
 		void Process (string msg)
 		{
 			try {
-				Console.WriteLine ("PROCESSING " + msg);
+				Console.WriteLine ("READING " + msg);
+				
+				var rpc = Rpc.Parse(msg, _typesAsm);
+				
+				Console.WriteLine ("PROCESSING " + rpc);
 			} catch (Exception error) {
 				OnProcessError (error);
 			}
@@ -147,6 +156,10 @@ namespace Data.Subscriptions
 				Process (msg);
 			}
 		}
+		
+		string NewStreamUrl() {
+			return _streamUrl + Keys.GenKey(ClientId);
+		}
 
 		void RecvLoop ()
 		{
@@ -175,7 +188,7 @@ namespace Data.Subscriptions
 						_lastConnectTryTime = now;
 						
 						try {
-							var req = (HttpWebRequest)WebRequest.Create (_url);
+							var req = (HttpWebRequest)WebRequest.Create (NewStreamUrl());
 							req.KeepAlive = true;
 							_resp = (HttpWebResponse)req.GetResponse ();
 							if (_resp.StatusCode != HttpStatusCode.OK) {
@@ -226,12 +239,12 @@ namespace Data.Subscriptions
 	{
 		static Dictionary<string, ClientServerInterface> _pollers = new Dictionary<string, ClientServerInterface> ();
 
-		public static ClientServerInterface GetInterface (Server server, string clientId)
+		public static ClientServerInterface GetInterface (ServerRef server, string clientId, System.Reflection.Assembly typesAsm)
 		{
 			var key = server.Host + "/" + clientId;
 			ClientServerInterface p;
 			if (!_pollers.TryGetValue (key, out p)) {
-				p = new ClientServerInterface (server, clientId);
+				p = new ClientServerInterface (server, clientId, typesAsm);
 				_pollers.Add (key, p);
 			}
 			return p;

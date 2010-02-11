@@ -10,7 +10,7 @@ namespace Examples.TwitterServer
 		public static void Main (string[] args)
 		{
 			var prefix = "http://*:31337/";
-			var s = new ServerRepo (prefix);
+			var s = new ServerRepo (prefix, typeof(Tweet).Assembly);
 			s.Start ();
 			
 			Console.WriteLine ("Bound to " + prefix);

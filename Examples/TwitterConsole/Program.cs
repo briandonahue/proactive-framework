@@ -15,9 +15,9 @@ namespace Examples.TwitterConsole
 			
 			var clientId = args.Length > 0 ? args[0] : "client0";
 			
-			var client = new ClientRepo (new Server ("http://localhost:31337"), clientId);
+			var client = new ClientRepo (new ServerRef ("http://localhost:31337"), clientId);
 			
-			var frankPosts = client.Table<Post> ().Where (f => f.From == "Frank");
+			var frankPosts = client.Table<Tweet> ().Where (f => f.From == "Frank");
 			
 			var ch = client.Subscribe (frankPosts);
 			
@@ -30,18 +30,12 @@ namespace Examples.TwitterConsole
 			System.Threading.Thread.Sleep (20000);
 		}
 
-		static void ShowPost (Post p)
+		static void ShowPost (Tweet p)
 		{
 			Console.WriteLine (p.Text);
 			Console.WriteLine ("  -" + p.From);
 		}
 		
-	}
-
-	public class Post
-	{
-		public string From { get; private set; }
-		public string Text { get; set; }
 	}
 	
 }

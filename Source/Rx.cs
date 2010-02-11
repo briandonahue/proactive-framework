@@ -20,56 +20,56 @@ namespace Rx
 	{
 		public static IObservable<TSource> Where<TSource> (this IObservable<TSource> source, Func<TSource, bool> predicate)
 		{
-			return new DelegateObservable<TSource>(onNext => {
+			return new DelegateObservable<TSource>((onNext, onCompleted) => {
 				source.Subscribe(value => {
 					if (predicate(value)) {					
 						onNext(value);					
 					}
-				});
+				}, onCompleted);
 			});
 		}
 
 		public static IObservable<TResult> Select<TSource, TResult> (this IObservable<TSource> source, Func<TSource, TResult> selector)
 		{
-			return new DelegateObservable<TResult>(onNext => {
+			return new DelegateObservable<TResult>((onNext, onCompleted) => {
 				source.Subscribe(value => {
 					onNext(selector(value));
-				});
+				}, onCompleted);
 			});
 		}
 
 		public static IObservable<TResult> SelectMany<TSource, TResult> (this IObservable<TSource> source, Func<TSource, IObservable<TResult>> selector)
 		{
-			return new DelegateObservable<TResult>(onNext => {
+			return new DelegateObservable<TResult>((onNext, onCompleted) => {
 				source.Subscribe(value => {
 					var o = selector(value);
 					o.Subscribe(value2 => {
 						onNext(value2);
-					});
-				});
+					}, ()=>{});
+				}, onCompleted);
 			});
 		}
 
 		public static IObservable<TResult> SelectMany<TSource, TCollection, TResult> (this IObservable<TSource> source, Func<TSource, IObservable<TCollection>> collectionSelector, Func<TSource, TCollection, TResult> resultSelector)
 		{
-			return new DelegateObservable<TResult>(onNext => {
+			return new DelegateObservable<TResult>((onNext, onCompleted) => {
 				source.Subscribe(value => {
 					var o = collectionSelector(value);
 					o.Subscribe(value2 => {
 						var r = resultSelector(value, value2);
 						onNext(r);
-					});
-				});
+					}, () => {});
+				}, onCompleted);
 			});
 		}
 		
-		public static void Subscribe<TSource> (this IObservable<TSource> source, Action<TSource> onNext)
+		public static void Subscribe<TSource> (this IObservable<TSource> source, Action<TSource> onNext, Action onCompleted)
 		{
-			source.Subscribe(new DelegateObserver<TSource>(onNext));
+			source.Subscribe(new DelegateObserver<TSource>(onNext, onCompleted));
 		}		
 	}
 
-	public class Observable {
+	public partial class Observable {
 		static SynchronizationContext _context;
 		
 		static Observable() {
@@ -96,10 +96,10 @@ namespace Rx
 		Action<T> _onNext;
 		Action _onCompleted;
 
-		public DelegateObserver(Action<T> onNext) {
+		public DelegateObserver(Action<T> onNext, Action onCompleted) {
 			_onNext = onNext;
 			_onError = null;
-			_onCompleted = null;
+			_onCompleted = onCompleted;
 		}
 		
 		public void OnError (Exception error)
@@ -141,9 +141,9 @@ namespace Rx
 		
 		RunAction _run;
 		
-		public DelegateObservable(Action<Action<T>> run) {
+		public DelegateObservable(Action<Action<T>, Action> run) {
 			_run = (n, c, e) => {
-				run(n);
+				run(n, c);
 			};
 		}
 		

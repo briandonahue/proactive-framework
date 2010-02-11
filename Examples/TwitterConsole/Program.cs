@@ -8,38 +8,40 @@ using Data.Subscriptions;
 
 namespace Examples.TwitterConsole
 {
-    class Program
-    {
-        static void Main(string[] args) {
-
-            var clientId = args.Length > 0 ? args[0] : "client0";
-
-            var client = new ClientRepo(new Server("http://localhost:31337"), clientId);
-
-            var frankPosts = client.Table<Post>().Where(f => f.From == "Frank");
-
-            var ch = client.Subscribe(frankPosts);
+	class Program
+	{
+		static void Main (string[] args)
+		{
+			
+			var clientId = args.Length > 0 ? args[0] : "client0";
+			
+			var client = new ClientRepo (new Server ("http://localhost:31337"), clientId);
+			
+			var frankPosts = client.Table<Post> ().Where (f => f.From == "Frank");
+			
+			var ch = client.Subscribe (frankPosts);
 			
 			foreach (var p in ch.All) {
-				ShowPost(p);
+				ShowPost (p);
 			}
 			
 			ch.ValueInserted += ShowPost;
 			
-            System.Threading.Thread.Sleep(20000);
-        }
-		
-		static void ShowPost(Post p) {
+			System.Threading.Thread.Sleep (20000);
+		}
+
+		static void ShowPost (Post p)
+		{
 			Console.WriteLine (p.Text);
 			Console.WriteLine ("  -" + p.From);
 		}
+		
+	}
 
-    }
-	
 	public class Post
-    {
-        public string From { get; private set; }
-        public string Text { get; set; }
-    }
-
+	{
+		public string From { get; private set; }
+		public string Text { get; set; }
+	}
+	
 }

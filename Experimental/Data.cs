@@ -118,7 +118,7 @@ namespace Data
 				map = GetMapping (ty);
 				_tables.Add (ty.FullName, map);
 			}
-			var query = "create table if not exists " + Orm.Quote(map.TableName) + "(\n";
+			var query = "create table if not exists " + Orm.Quote (map.TableName) + "(\n";
 			
 			var decls = map.Columns.Select (p => Orm.GetColumnDeclSql (p));
 			var decl = string.Join (",\n", decls.ToArray ());
@@ -312,9 +312,7 @@ namespace Data
 		public T Get<T> (object pk) where T : new()
 		{
 			var map = GetMapping (typeof(T));
-			string query = string.Format ("select * from {0} where {1} = ?", 
-			                              Orm.Quote(map.TableName), 
-			                              Orm.Quote(map.PK.Name));
+			string query = string.Format ("select * from {0} where {1} = ?", Orm.Quote (map.TableName), Orm.Quote (map.PK.Name));
 			return Query<T> (query, pk).First ();
 		}
 
@@ -356,7 +354,7 @@ namespace Data
 			var vals = from c in map.InsertColumns
 				select c.GetValue (obj);
 			
-			var count = Execute (Orm.GetInsertSql(map), vals.ToArray ());
+			var count = Execute (Orm.GetInsertSql (map), vals.ToArray ());
 			
 			if (map.ContainsAutoIncPK) {
 				var cmd = _conn.CreateCommand ();
@@ -400,9 +398,8 @@ namespace Data
 				select c.GetValue (obj);
 			var ps = new List<object> (vals);
 			ps.Add (pk.GetValue (obj));
-			var q = string.Format ("update {0} set {1} where {2} = ? ", 
-			                       Orm.Quote(map.TableName), string.Join (",", (from c in cols
-				select Orm.Quote(c.Name) + " = ? ").ToArray ()), pk.Name);
+			var q = string.Format ("update {0} set {1} where {2} = ? ", Orm.Quote (map.TableName), string.Join (",", (from c in cols
+				select Orm.Quote (c.Name) + " = ? ").ToArray ()), pk.Name);
 			return Execute (q, ps.ToArray ());
 		}
 
@@ -422,7 +419,7 @@ namespace Data
 			if (pk == null) {
 				throw new NotSupportedException ("Cannot delete " + map.TableName + ": it has no PK");
 			}
-			var q = string.Format ("delete from {0} where {1} = ?", Orm.Quote(map.TableName), Orm.Quote(pk.Name));
+			var q = string.Format ("delete from {0} where {1} = ?", Orm.Quote (map.TableName), Orm.Quote (pk.Name));
 			return Execute (q, pk.GetValue (obj));
 		}
 
@@ -431,7 +428,7 @@ namespace Data
 			_conn.Dispose ();
 		}
 	}
-	
+
 	public class PrimaryKeyAttribute : Attribute
 	{
 	}
@@ -453,7 +450,7 @@ namespace Data
 	public class TableMapping
 	{
 		public const int DefaultMaxStringLength = 140;
-		
+
 		public Type MappedType { get; private set; }
 		public string TableName { get; private set; }
 
@@ -511,7 +508,7 @@ namespace Data
 			var exact = Columns.Where (c => c.Name == name).FirstOrDefault ();
 			return exact;
 		}
-		
+
 		public abstract class Column
 		{
 			public string Name { get; protected set; }
@@ -581,14 +578,15 @@ namespace Data
 		public override void InitConnection (IDbConnection conn)
 		{
 		}
-		
-		public override string Quote (string identifier) {
+
+		public override string Quote (string identifier)
+		{
 			return "`" + identifier + "`";
 		}
-		
+
 		public override string GetColumnDeclSql (TableMapping.Column p)
 		{
-			string decl = Quote(p.Name) + " " + GetColumnSqlType (p) + " ";
+			string decl = Quote (p.Name) + " " + GetColumnSqlType (p) + " ";
 			
 			if (p.IsPK) {
 				decl += "primary key ";
@@ -602,7 +600,7 @@ namespace Data
 			
 			return decl;
 		}
-		
+
 		public override string GetColumnSqlType (TableMapping.Column p)
 		{
 			var clrType = p.ColumnType;
@@ -631,13 +629,14 @@ namespace Data
 		{
 		}
 
-		public override string Quote (string identifier) {
+		public override string Quote (string identifier)
+		{
 			return "\"" + identifier + "\"";
 		}
 
 		public override string GetColumnDeclSql (TableMapping.Column p)
 		{
-			string decl = Quote(p.Name) + " " + GetColumnSqlType (p) + " ";
+			string decl = Quote (p.Name) + " " + GetColumnSqlType (p) + " ";
 			
 			if (p.IsPK) {
 				decl += "primary key ";
@@ -682,19 +681,21 @@ namespace Data
 		public abstract string Quote (string identifier);
 
 		public abstract string GetColumnDeclSql (TableMapping.Column p);
-		
+
 		public abstract string GetColumnSqlType (TableMapping.Column p);
-		
-		public virtual string GetInsertSql(TableMapping map) {
+
+		public virtual string GetInsertSql (TableMapping map)
+		{
 			var cols = map.InsertColumns;
-			return string.Format ("insert into {0}({1}) values ({2})", Quote(map.TableName), string.Join (",", (from c in cols
-				select Quote(c.Name)).ToArray ()), string.Join (",", (from c in cols
+			return string.Format ("insert into {0}({1}) values ({2})", Quote (map.TableName), string.Join (",", (from c in cols
+				select Quote (c.Name)).ToArray ()), string.Join (",", (from c in cols
 				select "?").ToArray ()));
 		}
-		
-		public static Orm GetForConnection(IDbConnection conn) {
-			var orm = new MySqlOrm();
-			orm.InitConnection(conn);
+
+		public static Orm GetForConnection (IDbConnection conn)
+		{
+			var orm = new MySqlOrm ();
+			orm.InitConnection (conn);
 			return orm;
 		}
 	}
@@ -807,19 +808,22 @@ namespace Data
 				_where = Expression.AndAlso (_where, pred);
 			}
 		}
-		
-		string Quote(string ident) { return Orm.Quote(ident); }
+
+		string Quote (string ident)
+		{
+			return Orm.Quote (ident);
+		}
 
 		public CompiledQuery Compile ()
 		{
-			var cmdText = "select * from " + Quote(Table.TableName);
+			var cmdText = "select * from " + Quote (Table.TableName);
 			var args = new List<object> ();
 			if (_where != null) {
 				var w = CompileExpr (_where, args);
 				cmdText += " where " + w.CommandText;
 			}
 			if ((_orderBys != null) && (_orderBys.Count > 0)) {
-				var t = string.Join (", ", _orderBys.Select (o => Quote(o.ColumnName) + (o.Ascending ? "" : " desc")).ToArray ());
+				var t = string.Join (", ", _orderBys.Select (o => Quote (o.ColumnName) + (o.Ascending ? "" : " desc")).ToArray ());
 				cmdText += " order by " + t;
 			}
 			if (_limit.HasValue) {
@@ -828,15 +832,12 @@ namespace Data
 			if (_offset.HasValue) {
 				cmdText += " offset " + _limit.Value;
 			}
-			return new CompiledQuery() {
-				CommandText = cmdText,
-				Arguments = args.ToArray()
-			};
+			return new CompiledQuery { CommandText = cmdText, Arguments = args.ToArray () };
 		}
-		
+
 		private IDbCommand GenerateCommand ()
 		{
-			var cq = Compile();
+			var cq = Compile ();
 			return Connection.CreateCommand (cq.CommandText, cq.Arguments);
 		}
 
@@ -878,7 +879,7 @@ namespace Data
 					//
 					// This is a column of our table, output just the column name
 					//
-					return new CompileResult { CommandText = Quote(mem.Member.Name) };
+					return new CompileResult { CommandText = Quote (mem.Member.Name) };
 				} else {
 					var r = CompileExpr (mem.Expression, queryArgs);
 					if (r.Value == null) {
@@ -931,10 +932,11 @@ namespace Data
 		{
 			return GetEnumerator ();
 		}
-
+		
 	}
-	
-	public class CompiledQuery {
+
+	public class CompiledQuery
+	{
 		public string CommandText { get; set; }
 		public object[] Arguments { get; set; }
 	}

@@ -10,12 +10,13 @@ namespace Examples.TwitterServer
 		public static void Main (string[] args)
 		{
 			var prefix = "http://*:31337/";
-			var s = new ServerRepo(prefix);
-			s.Start();
+			var s = new ServerRepo (prefix);
+			s.Start ();
 			
 			Console.WriteLine ("Bound to " + prefix);
 			
-			System.Threading.Thread.Sleep(1000000);
+			Console.WriteLine ("Hit Return to exit");
+			Console.ReadLine();
 		}
 	}
 }

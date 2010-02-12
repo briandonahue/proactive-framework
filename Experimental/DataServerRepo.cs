@@ -18,17 +18,17 @@ namespace Data.Subscriptions
 		}
 	}
 
-	public class ServerRepo
+	public class ServerRepo : ITypeResolver
 	{
 		Server _server;
-		//System.Reflection.Assembly _typesAsm;
+		List<Type> _types;
 
 		Dictionary<string, ClientHandler> _handlersByClientId;
 		Dictionary<string, Dictionary<SqlQuery, QueryInfo>> _queryInfos;
 
 		public ServerRepo (string prefix, System.Reflection.Assembly typesAsm)
 		{
-			//_typesAsm = typesAsm;
+			_types = new List<Type>(typesAsm.GetTypes());
 			_server = new Server (this, prefix);
 			_handlersByClientId = new Dictionary<string, ClientHandler> ();
 			_queryInfos = new Dictionary<string, Dictionary<SqlQuery, QueryInfo>> ();
@@ -38,12 +38,21 @@ namespace Data.Subscriptions
 		{
 			_server.Start ();
 		}
+		
+		public Type FindType(string name) {
+			foreach (var ty in _types) {
+				if (ty.Name == name) {
+					return ty;
+				}
+			}
+			throw new ApplicationException("Could not find type named " + name);
+		}
 
 		void Respond (Request r)
 		{
 			ClientHandler handler;
 			if (!_handlersByClientId.TryGetValue (r.ClientId, out handler)) {
-				handler = new ClientHandler (r.ClientId);
+				handler = new ClientHandler (r.ClientId, this);
 				_handlersByClientId.Add (r.ClientId, handler);
 			}
 			handler.Respond (r);
@@ -85,8 +94,10 @@ namespace Data.Subscriptions
 			
 			System.IO.Stream _clientStream;
 			object _clientStreamLock = new object();
+			ServerRepo _repo;
 			
-			public ClientHandler(string clientId) {
+			public ClientHandler(string clientId, ServerRepo repo) {
+				_repo = repo;
 				ClientId = clientId;
 				var streamThread = new System.Threading.Thread((System.Threading.ThreadStart)delegate {
 					StreamLoop();
@@ -98,9 +109,50 @@ namespace Data.Subscriptions
 			public void Respond (Request r)
 			{
 				if (r.Resource == "rpc") {
+					
+					Console.WriteLine (ClientId + " RPC " + r);
+					
+					var rpcTexts = r.RequestBody.Split(new char[] { '\r','\n' }, StringSplitOptions.RemoveEmptyEntries);
+					var resps = new string[rpcTexts.Length];
+					for (int i = 0; i < rpcTexts.Length; i++) {
+						var rpcText = rpcTexts[i];
+						var resp = "";
+						try {
+							var rpc = Rpc.Parse(rpcText, _repo);
+							resp = ProcessRpc(rpc);
+						}
+						catch (Exception error) {
+							LogRpcError(error);
+							resp = "";
+						}
+						resps[i] = resp;
+						
+					}
+					var respBody = string.Join(";", resps);
+					Console.WriteLine (ClientId + " -> " + respBody);
+					var respBytes = Encoding.UTF8.GetBytes(respBody);
+					
+					r.ResponseStream.Write(respBytes, 0, respBytes.Length);
+					r.ResponseStream.Close();
+					
 				} else if (r.Resource == "stream") {
+					
+					Console.WriteLine (ClientId + " Stream " + r);
 					ResetStream(r.ResponseStream);
+				
 				}
+			}
+			
+			string ProcessRpc(Rpc rpc) {				
+				if (rpc.Procedure == "subscribe") {
+					throw new NotSupportedException("Server RPC " + rpc.Procedure);
+				}
+				else if (rpc.Procedure == "unsubscribe") {
+					throw new NotSupportedException("Server RPC " + rpc.Procedure);
+				}
+				else {
+					throw new NotSupportedException("Server RPC " + rpc.Procedure);
+				}				
 			}
 			
 			System.IO.Stream GetStream() {
@@ -149,8 +201,12 @@ namespace Data.Subscriptions
 				}
 			}
 			
+			void LogRpcError(Exception error) {
+				Console.WriteLine (ClientId + " ERROR rpc: " + error.Message);
+			}
+			
 			void LogStreamingError(Exception error) {
-				Console.WriteLine (ClientId + " stopped streaming: " + error.Message);
+				Console.WriteLine (ClientId + " ERROR stopped streaming: " + error.Message);
 			}
 		}
 
@@ -191,7 +247,7 @@ namespace Data.Subscriptions
 				try {
 					var r = new Request (c);
 					
-					Console.WriteLine (r);
+					//Console.WriteLine (r);
 					
 					if (!r.IsValid) {
 						c.Response.StatusCode = 400;

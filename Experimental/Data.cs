@@ -832,7 +832,7 @@ namespace Data
 			if (_offset.HasValue) {
 				cmdText += " offset " + _limit.Value;
 			}
-			return new SqlQuery (typeof(T).FullName, cmdText, args.ToArray ());
+			return new SqlQuery (typeof(T).Name, cmdText, args.ToArray ());
 		}
 
 		private IDbCommand GenerateCommand ()

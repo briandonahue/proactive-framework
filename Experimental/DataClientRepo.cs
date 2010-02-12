@@ -114,7 +114,7 @@ namespace Data.Subscriptions
 		public ServerChannel<T> Subscribe<T> (SqlQuery query)
 		{
 			IServerChannel channel = null;
-			var needRpcSubscribe = false;
+			var needsSubscribeRpc = false;
 			
 			lock (_channelsLock) {
 				foreach (var ch in _channels.Values) {
@@ -124,7 +124,7 @@ namespace Data.Subscriptions
 					}
 				}
 				if (channel == null) {
-					needRpcSubscribe = true;
+					needsSubscribeRpc = true;
 					
 					var tempId = "?" + query.GetHashCode();
 					channel = new ServerChannel<T>(tempId, query);
@@ -135,9 +135,11 @@ namespace Data.Subscriptions
 				}
 			}
 			
-			QueueRpc(GetSubscribeRpc(query), true, result => {				
-				SetChannelId(channel, result.Trim());				
-			});
+			if (needsSubscribeRpc) {
+				QueueRpc(GetSubscribeRpc(query), true, result => {				
+					SetChannelId(channel, result.Trim());				
+				});
+			}
 			
 			return (ServerChannel<T>)channel;
 		}
@@ -148,12 +150,12 @@ namespace Data.Subscriptions
 			return s;
 		}
 		
-		string GetUnsubscribeRpc(IServerChannel ch) {
+		/*string GetUnsubscribeRpc(IServerChannel ch) {
 			var s = "unsubscribe(\"" + ch.Query.TypeName + "\"";
 			s += "," + ch.ChannelId;
 			s += ");";
 			return s;
-		}
+		}*/
 		
 		void SetChannelId(IServerChannel channel, string id) {
 			lock (_channelsLock) {

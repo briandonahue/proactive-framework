@@ -21,9 +21,13 @@ namespace Examples.TwitterConsole
 			
 			var ch = client.Subscribe (frankPosts);
 			
-			foreach (var p in ch.All) {
-				ShowPost (p);
-			}
+			ch.AllValues += tweets => {
+				foreach (var p in tweets) {
+					ShowPost (p);
+				}
+			};
+			
+			ch.BeginGetAll();
 			
 			ch.ValueInserted += ShowPost;
 			

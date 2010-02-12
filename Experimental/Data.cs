@@ -859,14 +859,8 @@ namespace Data
 				return new CompileResult { CommandText = text };
 			} else if (expr.NodeType == ExpressionType.Constant) {
 				var c = (ConstantExpression)expr;
-				var val = c.Value;
-				string t;
-				if (val is string) {
-					t = "'" + val.ToString ().Replace ("'", "''") + "'";
-				} else {
-					t = val.ToString ();
-				}
-				return new CompileResult { CommandText = t, Value = c.Value };
+				queryArgs.Add (c.Value);
+				return new CompileResult { CommandText = "?", Value = c.Value };
 			} else if (expr.NodeType == ExpressionType.Convert) {
 				var u = (UnaryExpression)expr;
 				var ty = u.Type;

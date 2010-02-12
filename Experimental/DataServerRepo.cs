@@ -25,9 +25,13 @@ namespace Data.Subscriptions
 
 		Dictionary<string, ClientHandler> _handlersByClientId;
 		Dictionary<string, Dictionary<SqlQuery, QueryInfo>> _queryInfos;
+		object _queryInfosLock = new object();
+		
+		Dictionary<string, Subscription> _subscriptions;
 
 		public ServerRepo (string prefix, System.Reflection.Assembly typesAsm)
 		{
+			_subscriptions = new Dictionary<string, Subscription>();
 			_types = new List<Type>(typesAsm.GetTypes());
 			_server = new Server (this, prefix);
 			_handlersByClientId = new Dictionary<string, ClientHandler> ();
@@ -62,27 +66,110 @@ namespace Data.Subscriptions
 		{
 			var fullTypeName = query.TypeName;
 			
-			Dictionary<SqlQuery, QueryInfo> tableQueries;
-			if (!_queryInfos.TryGetValue (fullTypeName, out tableQueries)) {
-				tableQueries = new Dictionary<SqlQuery, QueryInfo> ();
-				_queryInfos.Add (fullTypeName, tableQueries);
-			}
+			QueryInfo info = null;
 			
-			QueryInfo info;
-			if (!tableQueries.TryGetValue (query, out info)) {
-				info = new QueryInfo (query);
+			lock (_queryInfosLock) {			
+				Dictionary<SqlQuery, QueryInfo> tableQueries;
+				if (!_queryInfos.TryGetValue (fullTypeName, out tableQueries)) {
+					tableQueries = new Dictionary<SqlQuery, QueryInfo> ();
+					_queryInfos.Add (fullTypeName, tableQueries);
+				}
+				
+				if (!tableQueries.TryGetValue (query, out info)) {
+					info = new QueryInfo (query);
+					tableQueries.Add(query, info);
+				}
 			}
 			
 			return info;
+		}
+		
+		Dictionary<string, Subscription> _subs = new Dictionary<string, Subscription>();
+		object _subsLock = new object();
+		
+		Subscription Subscribe(ClientHandler client, SqlQuery query) {
+			var info = GetQueryInfo(query);
+			var sub = info.Subscribe(client);
+			lock (_subsLock) {
+				if (!_subs.ContainsKey(sub.Id)) {
+					_subs.Add(sub.Id, sub);
+				}
+			}
+			return sub;
+		}
+		
+		void Unsubscribe(ClientHandler client, string subId) {			
+			Subscription sub = null;
+			lock (_subsLock) {
+				_subs.TryGetValue(subId, out sub);
+				if (sub != null) {
+					_subs.Remove(subId);
+				}
+			}
+			if (sub != null) {
+				var info = GetQueryInfo(sub.Query);
+				info.Unsubscribe(sub);
+			}
+		}
+		
+		class Subscription
+		{
+			static int _nextId = 1;
+			
+			public string Id { get; private set; }
+			public ClientHandler Client { get; private set; }
+			public SqlQuery Query { get; private set; }
+			
+			public DateTime LastStreamTime { get; set; }
+			
+			public bool AllRequested { get; private set; }
+			public void RequestAll() {
+				AllRequested = true;
+			}
+			public void SentAll() {
+				AllRequested = false;
+			}
+			
+			public Subscription(ClientHandler client, SqlQuery query) {
+				Id = System.Threading.Interlocked.Increment(ref _nextId).ToString();
+
+				Client = client;
+				Query = query;
+			}
 		}
 
 		class QueryInfo
 		{
 			SqlQuery Query;
+			
+			Dictionary<string, Subscription> _subsByClientId = new Dictionary<string, Subscription>();
+			Dictionary<string, Subscription> _subsById = new Dictionary<string, Subscription>();
+			object _subsLock = new object();
 
 			public QueryInfo (SqlQuery query)
 			{
 				Query = query;
+			}
+			
+			public Subscription Subscribe(ClientHandler client) {
+				Subscription sub = null;
+				lock (_subsLock) {
+					if (!_subsByClientId.TryGetValue(client.ClientId, out sub)) {
+						
+						sub = new Subscription(client, Query);
+						
+						_subsByClientId[client.ClientId] = sub;
+						_subsById[sub.Id] = sub;
+					}
+				}
+				return sub;
+			}
+			
+			public void Unsubscribe(Subscription sub) {
+				lock (_subsLock) {
+					_subsByClientId.Remove(sub.Client.ClientId);
+					_subsById.Remove(sub.Id);
+				}
 			}
 		}
 
@@ -96,7 +183,11 @@ namespace Data.Subscriptions
 			object _clientStreamLock = new object();
 			ServerRepo _repo;
 			
+			Dictionary<string, Subscription> _subsById = new Dictionary<string, Subscription>();
+			object _subsLock = new object();
+			
 			public ClientHandler(string clientId, ServerRepo repo) {
+				
 				_repo = repo;
 				ClientId = clientId;
 				var streamThread = new System.Threading.Thread((System.Threading.ThreadStart)delegate {
@@ -145,14 +236,47 @@ namespace Data.Subscriptions
 			
 			string ProcessRpc(Rpc rpc) {				
 				if (rpc.Procedure == "subscribe") {
-					throw new NotSupportedException("Server RPC " + rpc.Procedure);
+					
+					var sub = _repo.Subscribe(this, new SqlQuery(rpc.ValueType.Name, rpc.Arguments[0].ToString(), (object[])rpc.Arguments[1]));
+
+					lock (_subsById) {
+						_subsById[sub.Id] = sub;
+					}
+					
+					SetHasDataToStream();
+					
+					return sub.Id;				
 				}
 				else if (rpc.Procedure == "unsubscribe") {
-					throw new NotSupportedException("Server RPC " + rpc.Procedure);
+					
+					var subId = rpc.Arguments[0].ToString();
+					
+					lock (_subsLock) {
+						_subsById.Remove(subId);
+					}
+					
+					return "1";
+				}
+				else if (rpc.Procedure == "all") {
+					
+					var subId = rpc.Arguments[0].ToString();
+					var sub = GetSubscription(subId);
+					sub.RequestAll();
+					SetHasDataToStream();
+				
+					return "1";
 				}
 				else {
 					throw new NotSupportedException("Server RPC " + rpc.Procedure);
 				}				
+			}
+			
+			Subscription GetSubscription(string subId) {
+				lock (_subsLock) {
+					Subscription sub = null;
+					_subsById.TryGetValue(subId, out sub);
+					return sub;
+				}
 			}
 			
 			System.IO.Stream GetStream() {
@@ -173,25 +297,39 @@ namespace Data.Subscriptions
 					_clientStream = newStream;
 				}
 			}
+			
+			System.Threading.AutoResetEvent _hasDataToStream = new System.Threading.AutoResetEvent(false);
+
+			public void SetHasDataToStream() {
+				_hasDataToStream.Set();
+			}
 						
 			void StreamLoop() {
-				for (;;) {					
-					try {						
+				for (;;) {
+					try {
+						_hasDataToStream.WaitOne();
+						
 						var s = GetStream();
 						
 						if (s != null) {							
-							var w = new StreamWriter(s);							
+							var w = new StreamWriter(s);	
+
+							Subscription[] subs = null;
+							lock (_subsLock) {
+								subs = _subsById.Values.ToArray();
+							}
 							
-							w.Write("all(\"Tweet\",42,[{Id:348957,From:\"Frank\",Text:\"Hello World!\"}]);\r\n");
-							w.Write("inserted(\"Tweet\",42,{Id:348958,From:\"Frank\",Text:\"Hello World, again!\"});\r\n");
+							foreach (var sub in subs) {
+								if (sub.AllRequested) {
+									sub.SentAll();
+									w.Write("all(\""+sub.Query.TypeName+"\","+sub.Id+",[{Id:348957,From:\"Frank\",Text:\"Hello World!\"}]);\r\n");
+								}
+							}
+							
+							//w.Write("updated(\""+sub.Query.TypeName+"\","+sub.Id+",[{Id:348957,From:\"Frank\",Text:\"Hello World!\"}]);\r\n");
 							
 							w.Flush();
 							s.Flush();
-							
-							System.Threading.Thread.Sleep(500);
-						}
-						else {
-							System.Threading.Thread.Sleep(5000);
 						}
 					}
 					catch (Exception error) {
@@ -202,7 +340,7 @@ namespace Data.Subscriptions
 			}
 			
 			void LogRpcError(Exception error) {
-				Console.WriteLine (ClientId + " ERROR rpc: " + error.Message);
+				Console.WriteLine (ClientId + " ERROR rpc: " + error);
 			}
 			
 			void LogStreamingError(Exception error) {

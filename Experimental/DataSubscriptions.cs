@@ -5,9 +5,6 @@ using System.Text;
 
 namespace Data.Subscriptions
 {
-	
-	
-	
 	public interface IChannel
 	{
 		void Pause ();
@@ -17,11 +14,12 @@ namespace Data.Subscriptions
 
 	public interface IDataChannel<T> : IChannel
 	{
-		IEnumerable<T> All { get; }
-
+		event Action<T[]> AllValues;
 		event Action<T> ValueInserted;
 		event Action<T> ValueUpdated;
 		event Action<T> ValueDeleted;
+		
+		void BeginGetAll();
 
 		void Update (T value);
 		void Delete (T value);
@@ -31,15 +29,24 @@ namespace Data.Subscriptions
 	{
 		protected bool Active { get; private set; }
 
+		bool _gotAll = false;
 		List<T> _allValues = new List<T> ();
 
-		public IEnumerable<T> All {
-			get { return _allValues; }
-		}
+		public event Action<T[]> AllValues;
 
 		public event Action<T> ValueInserted;
 		public event Action<T> ValueUpdated;
 		public event Action<T> ValueDeleted;
+		
+		public DataChannelBase() {
+		}
+		
+		public virtual void BeginGetAll() {
+		}
+		
+		protected void SetAll(IEnumerable<T> values) {
+			_allValues = new List<T>(values);
+		}
 
 		protected void RaiseInsert (T value)
 		{
@@ -174,6 +181,56 @@ namespace Data.Subscriptions
 	}
 	
 	public class Json {
+		
+		public static string Encode(object o) {
+			if (o == null) {
+				return "null";
+			}
+			else if (o is int || o is byte || o is long || o is float || o is double || o is decimal) {
+				return o.ToString();
+			}
+			else if (o is string) {
+				var sb = new StringBuilder();
+				sb.Append("\"");
+				foreach (var ch in (string)o) {
+					if (ch == '\\') {
+						sb.Append("\\\\");
+					}
+					else if (ch == '\r') {
+						sb.Append("\\r");
+					}
+					else if (ch == '\n') {
+						sb.Append("\\n");
+					}
+					else if (ch == '\t') {
+						sb.Append("\\t");
+					}
+					else if (ch == '\"') {
+						sb.Append("\\\"");
+					}
+					else if (ch == '\'') {
+						sb.Append("\\\'");
+					}
+					else {
+						sb.Append(ch);
+					}
+				}
+				sb.Append("\"");
+				return sb.ToString();
+			}
+			else if (o is TimeSpan) {
+				return ((TimeSpan)o).TotalSeconds.ToString();
+			}
+			else if (o is DateTime) {
+				return ((DateTime)o).ToString();
+			}
+			else if (o is bool) {
+				return ((bool)o) ? "true" : "false";
+			}
+			else {
+				throw new NotSupportedException("Don't know how to Json encode " + o);
+			}
+		}
 		
 		public static object ParseValue(Type valueType, string str) {
 			return ParseValue(valueType, new Tokens(str));

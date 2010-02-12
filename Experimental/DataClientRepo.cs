@@ -35,9 +35,9 @@ namespace Data.Subscriptions
 		}
 	}
 
-	public interface IServerChannel
+	public interface IServerSubscription
 	{
-		string ChannelId { get; set; }
+		string SubscriptionId { get; set; }
 		SqlQuery Query { get; }
 		void ProcessAll(object[] all);
 		void ProcessInserted(object value);
@@ -45,16 +45,24 @@ namespace Data.Subscriptions
 		void ProcessDeleted(object value);
 	}
 
-	public class ServerChannel<T> : DataChannelBase<T>, IServerChannel
+	public class ServerSubscription<T> : DataChannelBase<T>, IServerSubscription
 	{
-		public string ChannelId { get; set; }
+		public string SubscriptionId { get; set; }
 
 		public SqlQuery Query { get; private set; }
 
-		public ServerChannel (string channelId, SqlQuery cq)
+		ClientServerInterface _client;
+		
+		public ServerSubscription (ClientServerInterface client, string subscriptionId, SqlQuery cq)
 		{
+			_client = client;
 			Query = cq;
-			ChannelId = channelId;
+			SubscriptionId = subscriptionId;
+		}
+		
+		public override void BeginGetAll ()
+		{
+			_client.GetAll(this);
 		}
 		
 		public void ProcessAll(object[] all) {
@@ -77,8 +85,8 @@ namespace Data.Subscriptions
 
 	public class ClientServerInterface : ITypeResolver
 	{
-		Dictionary<string, IServerChannel> _channels = new Dictionary<string, IServerChannel> ();
-		object _channelsLock = new object();
+		Dictionary<string, IServerSubscription> _subsById = new Dictionary<string, IServerSubscription> ();
+		object _subsLock = new object();
 
 		ServerRef Server { get; set; }
 		string ClientId { get; set; }
@@ -87,7 +95,7 @@ namespace Data.Subscriptions
 		Stream _recvRespStream;
 		DateTime _lastConnectTryTime;
 		
-		Dictionary<string, Type> _subsTypes;
+		Dictionary<string, Type> _subTypes;
 
 		TimeSpan ConnectRetryTimeSpan { get; set; }
 
@@ -96,7 +104,7 @@ namespace Data.Subscriptions
 
 		public ClientServerInterface (ServerRef server, string clientId)
 		{
-			_subsTypes = new Dictionary<string, Type>();
+			_subTypes = new Dictionary<string, Type>();
 			
 			Server = server;
 			ClientId = clientId;
@@ -111,75 +119,81 @@ namespace Data.Subscriptions
 			sendTh.Start ();
 		}
 
-		public ServerChannel<T> Subscribe<T> (SqlQuery query)
+		public ServerSubscription<T> Subscribe<T> (SqlQuery query)
 		{
-			IServerChannel channel = null;
+			IServerSubscription sub = null;
 			var needsSubscribeRpc = false;
 			
-			lock (_channelsLock) {
-				foreach (var ch in _channels.Values) {
+			lock (_subsLock) {
+				foreach (var ch in _subsById.Values) {
 					if (ch.Query == query) {
-						channel = ch;
+						sub = ch;
 						break;
 					}
 				}
-				if (channel == null) {
+				if (sub == null) {
 					needsSubscribeRpc = true;
 					
 					var tempId = "?" + query.GetHashCode();
-					channel = new ServerChannel<T>(tempId, query);
-					_channels.Add(tempId, channel);
+					sub = new ServerSubscription<T>(this, tempId, query);
+					_subsById.Add(tempId, sub);
 					
 					var ty = typeof(T);
-					_subsTypes[ty.FullName] = ty;
+					_subTypes[ty.Name] = ty;
 				}
 			}
 			
 			if (needsSubscribeRpc) {
-				QueueRpc(GetSubscribeRpc(query), true, result => {				
-					SetChannelId(channel, result.Trim());				
+				QueueRpc("subscribe", query.TypeName, null, SubscribeArgs(query), true, result => {
+					SetSubscriptionId(sub, result.Trim());				
 				});
 			}
 			
-			return (ServerChannel<T>)channel;
+			return (ServerSubscription<T>)sub;
 		}
 		
-		string GetSubscribeRpc(SqlQuery query) {
-			var s = "subscribe(\"" + query.TypeName + "\"";
-			s += ");";
+		string SubscribeArgs(SqlQuery query) {
+			var s = Json.Encode(query.SqlText) + ",[";
+			s += string.Join(",", query.Arguments.Select(a => Json.Encode(a)).ToArray());
+			s += "]";
 			return s;
 		}
 		
-		/*string GetUnsubscribeRpc(IServerChannel ch) {
+		/*string UnsubscribeRpc(IServerChannel ch) {
 			var s = "unsubscribe(\"" + ch.Query.TypeName + "\"";
-			s += "," + ch.ChannelId;
+			s += "," + ch.SubscriptionId;
 			s += ");";
 			return s;
 		}*/
 		
-		void SetChannelId(IServerChannel channel, string id) {
-			lock (_channelsLock) {
-				if (_channels.ContainsKey(channel.ChannelId)) {
-					_channels.Remove(channel.ChannelId);
-				}
-				channel.ChannelId = id;
-				_channels[id] = channel;
-			}
+		public void GetAll(IServerSubscription sub) {
+			QueueRpc("all", sub.Query.TypeName, sub, "0", true, result => {				
+			});
 		}
 		
-		IServerChannel GetChannel(string channelId) {
-			IServerChannel channel;
-			lock (_channelsLock) {
-				if (_channels.TryGetValue(channelId, out channel)) {
+		void SetSubscriptionId(IServerSubscription sub, string id) {
+			Console.WriteLine ("SS " + id);
+			lock (_subsLock) {
+				_subsById.Remove(sub.SubscriptionId);
+				sub.SubscriptionId = id;
+				_subsById[id] = sub;
+			}
+			_newRpcsAvailable.Set();
+		}
+		
+		IServerSubscription GetChannel(string subscriptionId) {
+			IServerSubscription channel;
+			lock (_subsLock) {
+				if (_subsById.TryGetValue(subscriptionId, out channel)) {
 					return channel;
 				}
 			}
-			throw new ApplicationException("Channel not found (channelId = " + channelId + ")");
+			throw new ApplicationException("Channel not found (subscriptionId = " + subscriptionId + ")");
 		}
 		
 		public Type FindType(string name) {
-			lock (_channelsLock) {
-				foreach (var ty in _subsTypes.Values) {
+			lock (_subsLock) {
+				foreach (var ty in _subTypes.Values) {
 					if (ty.Name == name) {
 						return ty;
 					}
@@ -213,9 +227,9 @@ namespace Data.Subscriptions
 			try {
 				var rpc = Rpc.Parse (msg, this);
 				
-				var channelId = Convert.ToString (rpc.Arguments[0]);
+				var subId = Convert.ToString (rpc.Arguments[0]);
 				
-				var channel = GetChannel (channelId);
+				var channel = GetChannel (subId);
 				
 				if (rpc.Procedure == "all") {
 					channel.ProcessAll((object[])rpc.Arguments[1]);
@@ -314,19 +328,41 @@ namespace Data.Subscriptions
 		}
 		
 		class PendingRpc {
-			public string Json { get; set; }
+			public string Procedure { get; set; }
+			public string TypeName { get; set; }
+			public IServerSubscription Sub { get; set; }
+			public string JsonArgs { get; set; }
 			public bool SafeToResend { get; set; }
 			public Action<string> Callback { get; set; }
+			
+			public string Json {
+				get {
+					var j = Procedure + "(";
+					j += "\"" + TypeName + "\",";
+					if (Sub != null) {
+						j += "\"" + Sub.SubscriptionId + "\",";
+					}
+					j += JsonArgs;
+					j += ");";
+					return j;
+				}
+			}
 		}
 		
 		List<PendingRpc> _queuedRpcs = new List<PendingRpc>();
 		object _sendsLock = new object();
-		System.Threading.AutoResetEvent _newRpcs = new System.Threading.AutoResetEvent(false);
+		System.Threading.AutoResetEvent _newRpcsAvailable = new System.Threading.AutoResetEvent(false);
 		
-		void QueueRpc(string json, bool safeToResend, Action<string> k) {
+		void QueueRpc(string procedure, string typeName, IServerSubscription sub, string jsonArgs, bool safeToResend, Action<string> k) {
 			lock (_sendsLock) {
-				_queuedRpcs.Add(new PendingRpc() { Json = json, SafeToResend = safeToResend, Callback = k});
-				_newRpcs.Set();
+				_queuedRpcs.Add(new PendingRpc() { 
+					Procedure = procedure,
+					TypeName = typeName,
+					Sub = sub,
+					JsonArgs = jsonArgs, 
+					SafeToResend = safeToResend, 
+					Callback = k});
+				_newRpcsAvailable.Set();
 			}
 		}
 
@@ -334,17 +370,25 @@ namespace Data.Subscriptions
 		{
 			for (;;) {
 				
-				PendingRpc[] workingRpcs = null;
+				List<PendingRpc> workingRpcs = new List<PendingRpc>();
 				
 				try {
+					workingRpcs.Clear();
+					var remainingRpcs = new List<PendingRpc>();
+					
 					lock (_sendsLock) {
-						if (_queuedRpcs.Count > 0) {
-							workingRpcs = _queuedRpcs.ToArray();
-							_queuedRpcs.Clear();
-						}						
+						foreach (var rpc in _queuedRpcs) {
+							if (rpc.Sub != null && rpc.Sub.SubscriptionId.StartsWith("?")) {
+								remainingRpcs.Add(rpc);
+							}
+							else {
+								workingRpcs.Add(rpc);
+							}
+						}
+						_queuedRpcs = remainingRpcs;
 					}
 					
-					if (workingRpcs != null) {
+					if (workingRpcs.Count > 0) {
 						var bodyQ = from rpc in workingRpcs
 									select rpc.Json;
 						var body = string.Join("\r\n", bodyQ.ToArray());
@@ -366,14 +410,14 @@ namespace Data.Subscriptions
 						using (var resp = req.GetResponse()) {
 							using (var rs = resp.GetResponseStream()) {
 								using (var rr = new StreamReader(rs, Encoding.UTF8)) {
-									rr.ReadToEnd();
+									respText = rr.ReadToEnd();
 								}
 							}
 						}
 						
 						var results = respText.Split(';');
 						
-						if (results.Length == workingRpcs.Length) {
+						if (results.Length == workingRpcs.Count) {
 							for (int i = 0; i < results.Length; i++) {
 								try {
 									if (workingRpcs[i].Callback != null) {
@@ -390,16 +434,16 @@ namespace Data.Subscriptions
 						workingRpcs = null;
 					}
 					else {
-						_newRpcs.WaitOne();
+						_newRpcsAvailable.WaitOne();
 					}
 				}
 				catch (Exception error) {
 					
-					if (workingRpcs != null) {
+					if (workingRpcs.Count > 0) {
 						lock (_sendsLock) {							
 							_queuedRpcs.InsertRange(0, workingRpcs.Where(s => s.SafeToResend));
 						}
-						workingRpcs = null;
+						workingRpcs.Clear();
 					}
 					
 					System.Threading.Thread.Sleep(5000);

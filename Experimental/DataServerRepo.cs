@@ -21,14 +21,14 @@ namespace Data.Subscriptions
 	public class ServerRepo
 	{
 		Server _server;
-		System.Reflection.Assembly _typesAsm;
+		//System.Reflection.Assembly _typesAsm;
 
 		Dictionary<string, ClientHandler> _handlersByClientId;
 		Dictionary<string, Dictionary<SqlQuery, QueryInfo>> _queryInfos;
 
 		public ServerRepo (string prefix, System.Reflection.Assembly typesAsm)
 		{
-			_typesAsm = typesAsm;
+			//_typesAsm = typesAsm;
 			_server = new Server (this, prefix);
 			_handlersByClientId = new Dictionary<string, ClientHandler> ();
 			_queryInfos = new Dictionary<string, Dictionary<SqlQuery, QueryInfo>> ();
@@ -51,7 +51,7 @@ namespace Data.Subscriptions
 
 		QueryInfo GetQueryInfo (SqlQuery query)
 		{
-			var fullTypeName = query.FullTypeName;
+			var fullTypeName = query.TypeName;
 			
 			Dictionary<SqlQuery, QueryInfo> tableQueries;
 			if (!_queryInfos.TryGetValue (fullTypeName, out tableQueries)) {
@@ -130,8 +130,8 @@ namespace Data.Subscriptions
 						if (s != null) {							
 							var w = new StreamWriter(s);							
 							
-							w.Write("all(\"Tweet\",[{Id:348957,From:\"Frank\",Text:\"Hello World!\"}]);\r\n");
-							w.Write("inserted(\"Tweet\",{Id:348958,From:\"Frank\",Text:\"Hello World, again!\"});\r\n");
+							w.Write("all(\"Tweet\",42,[{Id:348957,From:\"Frank\",Text:\"Hello World!\"}]);\r\n");
+							w.Write("inserted(\"Tweet\",42,{Id:348958,From:\"Frank\",Text:\"Hello World, again!\"});\r\n");
 							
 							w.Flush();
 							s.Flush();
@@ -142,7 +142,7 @@ namespace Data.Subscriptions
 							System.Threading.Thread.Sleep(5000);
 						}
 					}
-					catch (Exception error) {						
+					catch (Exception error) {
 						ResetStream(null);
 						LogStreamingError(error);
 					}

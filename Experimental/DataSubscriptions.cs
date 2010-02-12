@@ -131,7 +131,7 @@ namespace Data.Subscriptions
 		}
 
 		
-		public static Rpc Parse(string json, System.Reflection.Assembly asm) {
+		public static Rpc Parse(string json, ITypeResolver types) {
 			var rpc = new Rpc();
 			var toks = new Json.Tokens(json);
 			
@@ -148,7 +148,7 @@ namespace Data.Subscriptions
 				throw new JsonParseException("Expected String got " + toks.Current);
 			}
 			var typeName = toks.CurrentValue;
-			rpc.ValueType = FindType(typeName, asm);
+			rpc.ValueType = types.FindType(typeName);
 			toks.Next();
 			if (toks.Current != ",") {
 				throw new JsonParseException("Expected , got " + toks.Current);
@@ -170,18 +170,7 @@ namespace Data.Subscriptions
 			}
 			
 			return rpc;
-		}
-		
-		static Type FindType(string name, System.Reflection.Assembly asm) {
-			var type = asm.GetType(name, false);
-			if (type != null) { return type; }
-			foreach (var t in asm.GetTypes()) {
-				if (t.Name == name) {
-					return t;
-				}
-			}
-			throw new JsonParseException("Unknown type " + name);
-		}
+		}		
 	}
 	
 	public class Json {
@@ -404,6 +393,9 @@ namespace Data.Subscriptions
 				case 'n': return '\n';
 				case 'r': return '\r';
 				case 't': return '\t';
+				case '\\': return '\\';
+				case '\"': return '\"';
+				case '\'': return '\'';
 				default: throw new JsonParseException("Don't know how to interpret \\" + ch);
 				}
 			}

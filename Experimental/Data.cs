@@ -937,20 +937,20 @@ namespace Data
 
 	public class SqlQuery
 	{
-		public string FullTypeName { get; private set; }
+		public string TypeName { get; private set; }
 		public string SqlText { get; private set; }
 		public object[] Arguments { get; private set; }
 
 		public SqlQuery ()
 		{
-			FullTypeName = "";
+			TypeName = "";
 			SqlText = "";
 			Arguments = new object[0];
 		}
 
-		public SqlQuery (string fullTypeName, string commandText, object[] args)
+		public SqlQuery (string typeName, string commandText, object[] args)
 		{
-			FullTypeName = fullTypeName;
+			TypeName = typeName;
 			SqlText = commandText;
 			Arguments = args;
 		}
@@ -960,7 +960,7 @@ namespace Data
 			var q = obj as SqlQuery;
 			if (q == null)
 				return false;
-			if (FullTypeName != q.FullTypeName)
+			if (TypeName != q.TypeName)
 				return false;
 			if (SqlText != q.SqlText)
 				return false;
@@ -975,7 +975,7 @@ namespace Data
 
 		public override int GetHashCode ()
 		{
-			var hash = FullTypeName.GetHashCode ();
+			var hash = TypeName.GetHashCode ();
 			hash += SqlText.GetHashCode ();
 			if (Arguments.Length > 0) {
 				hash += Arguments[0].GetHashCode ();

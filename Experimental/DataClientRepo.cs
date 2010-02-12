@@ -172,7 +172,6 @@ namespace Data.Subscriptions
 		}
 		
 		void SetSubscriptionId(IServerSubscription sub, string id) {
-			Console.WriteLine ("SS " + id);
 			lock (_subsLock) {
 				_subsById.Remove(sub.SubscriptionId);
 				sub.SubscriptionId = id;
@@ -231,6 +230,8 @@ namespace Data.Subscriptions
 				
 				var channel = GetChannel (subId);
 				
+				Console.WriteLine (	"PROCESSING " + msg);
+				
 				if (rpc.Procedure == "all") {
 					channel.ProcessAll((object[])rpc.Arguments[1]);
 				} else if (rpc.Procedure == "inserted") {
@@ -249,24 +250,30 @@ namespace Data.Subscriptions
 
 		int ParseAndProcessRecvdMessages (byte[] buffer, int bufferLength)
 		{
-			var n = bufferLength;
+			var endIdx = 0;
+			var beginIdx = 0;
 			
 			for (;;) {
-				var endIdx = -1;
-				for (int i = 0; i < n - 3 && endIdx < 0; i++) {
+				for (beginIdx = endIdx; (beginIdx < bufferLength) && (buffer[beginIdx] <= 0x20); beginIdx++) {
+				}
+				if (beginIdx >= bufferLength) {
+					return 0;
+				}
+				
+				endIdx = -1;
+				for (int i = beginIdx; i < bufferLength - 3 && endIdx < 0; i++) {
 					if (buffer[i] == ')' && buffer[i + 1] == ';' && buffer[i + 2] == '\r' && buffer[i + 3] == '\n') {
-						endIdx = i;
+						endIdx = i + 4;
 					}
 				}
 				if (endIdx < 0) {
-					return n;
+					var len = bufferLength - beginIdx;
+					Array.Copy(buffer, beginIdx, buffer, 0, len);
+					return len;
 				}
-				var msgLen = endIdx + 4;
-				var msg = System.Text.Encoding.UTF8.GetString (buffer, 0, msgLen);
 				
-				Array.Copy (buffer, msgLen, buffer, 0, n - msgLen);
-				
-				n -= msgLen;
+				var msgLen = endIdx - beginIdx;
+				var msg = System.Text.Encoding.UTF8.GetString (buffer, beginIdx, msgLen);				
 				
 				ProcessRecvdMessage (msg);
 			}

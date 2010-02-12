@@ -263,7 +263,7 @@ namespace Data.Subscriptions
 					var sub = GetSubscription(subId);
 					sub.RequestAll();
 					SetHasDataToStream();
-				
+					
 					return "1";
 				}
 				else {
@@ -305,15 +305,27 @@ namespace Data.Subscriptions
 			}
 						
 			void StreamLoop() {
+				
+				byte[] padding = new byte[4*1024];
+				for (int i = 0; i < padding.Length; i++) {
+					padding[i] = 0x20;
+				}
+				
 				for (;;) {
 					try {
 						_hasDataToStream.WaitOne();
 						
 						var s = GetStream();
 						
-						if (s != null) {							
-							var w = new StreamWriter(s);	
-
+						if (s != null) {
+							var numBytes = 0;
+							
+							Action<string> write = str => {
+								var bytes = Encoding.UTF8.GetBytes(str);
+								numBytes += bytes.Length;
+								s.Write(bytes, 0, bytes.Length);
+							};
+						
 							Subscription[] subs = null;
 							lock (_subsLock) {
 								subs = _subsById.Values.ToArray();
@@ -322,13 +334,16 @@ namespace Data.Subscriptions
 							foreach (var sub in subs) {
 								if (sub.AllRequested) {
 									sub.SentAll();
-									w.Write("all(\""+sub.Query.TypeName+"\","+sub.Id+",[{Id:348957,From:\"Frank\",Text:\"Hello World!\"}]);\r\n");
+									write("all(\""+sub.Query.TypeName+"\","+sub.Id+",[{Id:348957,From:\"Frank\",Text:\"Hello World!\"}]);\r\n");
 								}
 							}
 							
 							//w.Write("updated(\""+sub.Query.TypeName+"\","+sub.Id+",[{Id:348957,From:\"Frank\",Text:\"Hello World!\"}]);\r\n");
 							
-							w.Flush();
+							if (numBytes < padding.Length) {
+								s.Write(padding, 0, padding.Length - numBytes);
+							}
+							
 							s.Flush();
 						}
 					}
@@ -376,8 +391,8 @@ namespace Data.Subscriptions
 			void HandleGetContext (IAsyncResult ar)
 			{
 				var c = _listener.EndGetContext (ar);
-				HandleRequest (c);
 				BeginGet ();
+				HandleRequest (c);
 			}
 
 			void HandleRequest (HttpListenerContext c)

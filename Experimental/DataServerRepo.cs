@@ -403,11 +403,11 @@ namespace Data.Subscriptions
 					//Console.WriteLine (r);
 					
 					if (!r.IsValid) {
-						c.Response.StatusCode = 400;
 						// Bad Request
+						c.Response.StatusCode = 400;
 					} else if (!r.IsAuthenticated) {
-						c.Response.StatusCode = 403;
 						// Forbidden
+						c.Response.StatusCode = 403;
 					} else {
 						c.Response.StatusCode = 200;
 						c.Response.SendChunked = true;
@@ -423,7 +423,6 @@ namespace Data.Subscriptions
 			{
 				Console.WriteLine ("REQUEST ERROR " + error.Message);
 			}
-			
 		}
 
 		class Request

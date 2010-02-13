@@ -4,20 +4,21 @@ using System.Linq;
 using System.Text;
 using System.Net;
 using System.IO;
+using JsonSerialization;
 
-namespace Data.Subscriptions
+namespace Data.Subscriptions	
 {
 	public class ClientRepo
 	{
 		public ServerRef Server { get; private set; }
 		public string ClientId { get; private set; }
-		public Orm Orm { get; private set; }
+		public Dbi Dbi { get; private set; }
 
 		public ClientRepo (ServerRef server, string clientId)
 		{
 			Server = server;
 			ClientId = clientId;
-			Orm = new MySqlOrm ();
+			Dbi = new MySqlDbi ();
 		}
 
 		public IDataChannel<T> Subscribe<T> (TableQuery<T> query) where T : new()
@@ -31,7 +32,7 @@ namespace Data.Subscriptions
 
 		public TableQuery<T> Table<T> () where T : new()
 		{
-			return new TableQuery<T> (null, Orm, new TableMapping (typeof(T)));
+			return new TableQuery<T> (null, Dbi, new TableMapping (typeof(T)));
 		}
 	}
 

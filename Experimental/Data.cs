@@ -41,7 +41,7 @@ namespace Data
 
 		IDbConnection _conn;
 
-		public Orm Orm { get; private set; }
+		public Dbi Dbi { get; private set; }
 
 
 		/// <summary>
@@ -56,7 +56,7 @@ namespace Data
 			if (conn.State == ConnectionState.Closed) {
 				conn.Open ();
 			}
-			Orm = Data.Orm.GetForConnection (conn);
+			Dbi = Data.Dbi.GetForConnection (conn);
 			_open = true;
 		}
 
@@ -106,7 +106,7 @@ namespace Data
 		/// <returns>
 		/// The number of entries added to the database schema.
 		/// </returns>
-		public int CreateTable<T> ()
+		public bool CreateTable<T> ()
 		{
 			var ty = typeof(T);
 			
@@ -118,22 +118,36 @@ namespace Data
 				map = GetMapping (ty);
 				_tables.Add (ty.FullName, map);
 			}
-			var query = "create table if not exists " + Orm.Quote (map.TableName) + "(\n";
+			var query = "create table " + Dbi.Quote (map.TableName) + "(\n";
 			
-			var decls = map.Columns.Select (p => Orm.GetColumnDeclSql (p));
+			var decls = map.Columns.Select (p => Dbi.GetColumnDeclSql (p));
 			var decl = string.Join (",\n", decls.ToArray ());
 			query += decl;
 			query += ")";
 			
-			var count = Execute (query);
+			var created = false;
+			try {
+				created = Execute (query) > 0;
+			}
+			catch (Exception ex) {
+				Console.WriteLine (ex.Message);
+			}
 			
-			//foreach (var p in map.Columns.Where (x => x.IsIndexed)) {
-			//	var indexName = map.TableName + "_" + p.Name;
-			//	var q = string.Format ("create index \"{0}\" on \"{1}\"(\"{2}\")", indexName, map.TableName, p.Name);
-			//	count += Execute (q);
-			//}
+			foreach (var p in map.Columns.Where (x => x.IsIndexed)) {
+				var indexName = map.TableName + "_" + p.Name;
+				var q = string.Format ("create index {0} on {1}({2})", 
+				                       Dbi.Quote(indexName), 
+				                       Dbi.Quote(map.TableName), 
+				                       Dbi.Quote(p.Name));
+				try {
+					Execute (q);
+				}
+				catch (Exception ex) {
+					Console.WriteLine (ex.Message);
+				}
+			}
 			
-			return count;
+			return created;
 		}
 
 		/// <summary>
@@ -197,11 +211,9 @@ namespace Data
 		/// </returns>
 		public int Execute (string query, params object[] args)
 		{
-			var cmd = CreateCommand (query, args);
-			
-			int r = cmd.ExecuteNonQuery ();
-			
-			return r;
+			using (var cmd = CreateCommand (query, args)) {
+				return cmd.ExecuteNonQuery ();
+			}
 		}
 
 		/// <summary>
@@ -312,7 +324,7 @@ namespace Data
 		public T Get<T> (object pk) where T : new()
 		{
 			var map = GetMapping (typeof(T));
-			string query = string.Format ("select * from {0} where {1} = ?", Orm.Quote (map.TableName), Orm.Quote (map.PK.Name));
+			string query = string.Format ("select * from {0} where {1} = ?", Dbi.Quote (map.TableName), Dbi.Quote (map.PK.Name));
 			return Query<T> (query, pk).First ();
 		}
 
@@ -354,7 +366,7 @@ namespace Data
 			var vals = from c in map.InsertColumns
 				select c.GetValue (obj);
 			
-			var count = Execute (Orm.GetInsertSql (map), vals.ToArray ());
+			var count = Execute (Dbi.GetInsertSql (map), vals.ToArray ());
 			
 			if (map.ContainsAutoIncPK) {
 				var cmd = _conn.CreateCommand ();
@@ -398,8 +410,8 @@ namespace Data
 				select c.GetValue (obj);
 			var ps = new List<object> (vals);
 			ps.Add (pk.GetValue (obj));
-			var q = string.Format ("update {0} set {1} where {2} = ? ", Orm.Quote (map.TableName), string.Join (",", (from c in cols
-				select Orm.Quote (c.Name) + " = ? ").ToArray ()), pk.Name);
+			var q = string.Format ("update {0} set {1} where {2} = ? ", Dbi.Quote (map.TableName), string.Join (",", (from c in cols
+				select Dbi.Quote (c.Name) + " = ? ").ToArray ()), pk.Name);
 			return Execute (q, ps.ToArray ());
 		}
 
@@ -419,7 +431,7 @@ namespace Data
 			if (pk == null) {
 				throw new NotSupportedException ("Cannot delete " + map.TableName + ": it has no PK");
 			}
-			var q = string.Format ("delete from {0} where {1} = ?", Orm.Quote (map.TableName), Orm.Quote (pk.Name));
+			var q = string.Format ("delete from {0} where {1} = ?", Dbi.Quote (map.TableName), Dbi.Quote (pk.Name));
 			return Execute (q, pk.GetValue (obj));
 		}
 
@@ -573,7 +585,7 @@ namespace Data
 		}
 	}
 
-	public class MySqlOrm : Orm
+	public class MySqlDbi : Dbi
 	{
 		public override void InitConnection (IDbConnection conn)
 		{
@@ -623,7 +635,7 @@ namespace Data
 		}
 	}
 
-	public class SqliteOrm : Orm
+	public class SqliteDbi : Dbi
 	{
 		public override void InitConnection (IDbConnection conn)
 		{
@@ -674,7 +686,7 @@ namespace Data
 		}
 	}
 
-	public abstract class Orm
+	public abstract class Dbi
 	{
 		public abstract void InitConnection (IDbConnection conn);
 
@@ -692,18 +704,27 @@ namespace Data
 				select "?").ToArray ()));
 		}
 
-		public static Orm GetForConnection (IDbConnection conn)
+		public static Dbi GetForConnection (IDbConnection conn)
 		{
-			var orm = new MySqlOrm ();
-			orm.InitConnection (conn);
-			return orm;
+			var tn = conn.GetType().Name;
+			
+			Dbi r = null;
+			
+			if (tn == "SqliteConnection") {
+				r = new SqliteDbi();
+			}
+			else {
+				r = new MySqlDbi ();
+			}
+			r.InitConnection (conn);
+			return r;
 		}
 	}
 
 	public class TableQuery<T> : IEnumerable<T> where T : new()
 	{
 		public DbConnection Connection { get; private set; }
-		public Orm Orm { get; private set; }
+		public Dbi Dbi { get; private set; }
 		public TableMapping Table { get; private set; }
 
 		Expression _where;
@@ -717,23 +738,23 @@ namespace Data
 			public bool Ascending { get; set; }
 		}
 
-		public TableQuery (DbConnection conn, Orm orm, TableMapping table)
+		public TableQuery (DbConnection conn, Dbi orm, TableMapping table)
 		{
 			Connection = conn;
-			Orm = orm;
+			Dbi = orm;
 			Table = table;
 		}
 
 		public TableQuery (DbConnection conn)
 		{
 			Connection = conn;
-			Orm = Connection.Orm;
+			Dbi = Connection.Dbi;
 			Table = Connection.GetMapping (typeof(T));
 		}
 
 		public TableQuery<T> Clone ()
 		{
-			var q = new TableQuery<T> (Connection, Orm, Table);
+			var q = new TableQuery<T> (Connection, Dbi, Table);
 			q._where = _where;
 			if (_orderBys != null) {
 				q._orderBys = new List<Ordering> (_orderBys);
@@ -811,7 +832,7 @@ namespace Data
 
 		string Quote (string ident)
 		{
-			return Orm.Quote (ident);
+			return Dbi.Quote (ident);
 		}
 
 		public SqlQuery Compile ()

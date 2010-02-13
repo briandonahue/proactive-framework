@@ -56,9 +56,43 @@ namespace JsonSerialization
 			else if (o is bool) {
 				return ((bool)o) ? "true" : "false";
 			}
+			else if (o is System.Collections.IEnumerable) {
+				var sb = new StringBuilder();
+				sb.Append("[");
+				var head = "";
+				foreach (var e in (System.Collections.IEnumerable)o) {
+					sb.Append(head);
+					sb.Append(Encode(e));
+					head = ",";
+				}
+				sb.Append("]");
+				return sb.ToString();
+			}
+			else if (o.GetType().IsEnum) {
+				return "\"" + Enum.GetName(o.GetType(), o) + "\"";
+			}
+			else if (o.GetType().IsClass) {
+				var props = PropsForType(o.GetType());
+				var sb = new StringBuilder();
+				sb.Append("{");
+				var head = "";
+				foreach (var prop in props.Values) {
+					sb.Append(head);
+					sb.Append(prop.Name);
+					sb.Append(":");
+					sb.Append(Encode(prop.GetValue(o, null)));
+					head = ",";
+				}
+				sb.Append("}");
+				return sb.ToString();
+			}
 			else {
 				throw new NotSupportedException("Don't know how to Json encode " + o);
 			}
+		}
+		
+		public static T ParseValue<T>(string str) {
+			return (T)ParseValue(typeof(T), new Tokens(str));
 		}
 		
 		public static object ParseValue(Type valueType, string str) {
@@ -143,6 +177,10 @@ namespace JsonSerialization
 				}
 				toks.Next();
 			}
+			else if (tok == Tokens.Null) {
+				val = null;
+				toks.Next();
+			}
 			else if (tok == Tokens.Boolean) {
 				val = (toks.CurrentValue == "true");
 				toks.Next();
@@ -150,6 +188,9 @@ namespace JsonSerialization
 			else if (tok == Tokens.String) {
 				if (valueType == typeof(DateTime)) {
 					val = DateTime.Parse(toks.CurrentValue);
+				}
+				else if (valueType.IsEnum) {
+					val = Enum.Parse(valueType, toks.CurrentValue);
 				}
 				else {
 					val = toks.CurrentValue;
@@ -189,6 +230,7 @@ namespace JsonSerialization
 			public static readonly string Number = "Number";
 			public static readonly string Boolean = "Boolean";
 			public static readonly string String = "String";
+			public static readonly string Null = "Null";
 			
 			public string Current { get; private set; }
 			
@@ -224,7 +266,15 @@ namespace JsonSerialization
 					}
 					CurrentValue = ParseString.Substring(Index, i - Index);
 					Index = i;
-					Current = Identifier;
+					if (CurrentValue == "true" || CurrentValue == "false") {
+						Current = Boolean;
+					}
+					else if (CurrentValue == "null") {
+						Current = Null;
+					}
+					else {
+						Current = Identifier;
+					}
 				}
 				else if (char.IsDigit(ch) || ch == '-') {
 					var i = Index;

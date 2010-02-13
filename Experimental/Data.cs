@@ -41,6 +41,8 @@ namespace Data
 
 		IDbConnection _conn;
 
+		public bool Trace { get; set; }
+
 		public Dbi Dbi { get; private set; }
 
 
@@ -128,22 +130,21 @@ namespace Data
 			var created = false;
 			try {
 				created = Execute (query) > 0;
-			}
-			catch (Exception ex) {
-				Console.WriteLine (ex.Message);
+			} catch (Exception ex) {
+				if (Trace) {
+					Console.WriteLine (ex.Message);
+				}
 			}
 			
 			foreach (var p in map.Columns.Where (x => x.IsIndexed)) {
 				var indexName = map.TableName + "_" + p.Name;
-				var q = string.Format ("create index {0} on {1}({2})", 
-				                       Dbi.Quote(indexName), 
-				                       Dbi.Quote(map.TableName), 
-				                       Dbi.Quote(p.Name));
+				var q = string.Format ("create index {0} on {1}({2})", Dbi.Quote (indexName), Dbi.Quote (map.TableName), Dbi.Quote (p.Name));
 				try {
 					Execute (q);
-				}
-				catch (Exception ex) {
-					Console.WriteLine (ex.Message);
+				} catch (Exception ex) {
+					if (Trace) {
+						Console.WriteLine (ex.Message);
+					}
 				}
 			}
 			
@@ -706,14 +707,13 @@ namespace Data
 
 		public static Dbi GetForConnection (IDbConnection conn)
 		{
-			var tn = conn.GetType().Name;
+			var tn = conn.GetType ().Name;
 			
 			Dbi r = null;
 			
 			if (tn == "SqliteConnection") {
-				r = new SqliteDbi();
-			}
-			else {
+				r = new SqliteDbi ();
+			} else {
 				r = new MySqlDbi ();
 			}
 			r.InitConnection (conn);
@@ -881,6 +881,7 @@ namespace Data
 			} else if (expr.NodeType == ExpressionType.Constant) {
 				var c = (ConstantExpression)expr;
 				queryArgs.Add (c.Value);
+				//Console.WriteLine ("++ constant: {0}", c.Value);
 				return new CompileResult { CommandText = "?", Value = c.Value };
 			} else if (expr.NodeType == ExpressionType.Convert) {
 				var u = (UnaryExpression)expr;
@@ -900,17 +901,22 @@ namespace Data
 					if (r.Value == null) {
 						throw new NotSupportedException ("Member access failed to compile expression");
 					}
+					if (r.CommandText == "?") {
+						queryArgs.RemoveAt(queryArgs.Count - 1);
+					}
 					var obj = r.Value;
 					
 					if (mem.Member.MemberType == MemberTypes.Property) {
 						var m = (PropertyInfo)mem.Member;
 						var val = m.GetValue (obj, null);
 						queryArgs.Add (val);
+						//Console.WriteLine ("++ property: {0}", val);
 						return new CompileResult { CommandText = "?", Value = val };
 					} else if (mem.Member.MemberType == MemberTypes.Field) {
 						var m = (FieldInfo)mem.Member;
 						var val = m.GetValue (obj);
 						queryArgs.Add (val);
+						//Console.WriteLine ("++ field: {0}", val);
 						return new CompileResult { CommandText = "?", Value = val };
 					} else {
 						throw new NotSupportedException ("MemberExpr: " + mem.Member.MemberType.ToString ());

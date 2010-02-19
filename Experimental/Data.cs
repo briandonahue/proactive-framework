@@ -169,6 +169,9 @@ namespace Data
 			if (!_open) {
 				throw new ApplicationException ("Cannot create commands from unopened database");
 			} else {
+				if (Trace) {
+					Console.WriteLine (cmdText);
+				}
 				var cmd = _conn.CreateCommand ();
 				var sb = new StringBuilder ();
 				int p = 0;
@@ -370,9 +373,12 @@ namespace Data
 			var count = Execute (Dbi.GetInsertSql (map), vals.ToArray ());
 			
 			if (map.ContainsAutoIncPK) {
-				var cmd = _conn.CreateCommand ();
-				cmd.CommandText = "select LAST_INSERT_ID()";
-				var id = cmd.ExecuteScalar ();
+				object id = null;
+				using (var cmd = _conn.CreateCommand ()) {
+					cmd.CommandText = Dbi.GetLastInsertIdSql ();
+					id = cmd.ExecuteScalar ();
+				}
+				
 				map.SetAutoIncPK (obj, Convert.ToInt64 (id));
 			}
 			
@@ -414,6 +420,26 @@ namespace Data
 			var q = string.Format ("update {0} set {1} where {2} = ? ", Dbi.Quote (map.TableName), string.Join (",", (from c in cols
 				select Dbi.Quote (c.Name) + " = ? ").ToArray ()), pk.Name);
 			return Execute (q, ps.ToArray ());
+		}
+
+		public int UpdatePK (object obj, object newPK)
+		{
+			if (obj == null) {
+				return 0;
+			}
+			
+			var map = GetMapping (obj.GetType ());
+			
+			var pk = map.PK;
+			
+			if (pk == null) {
+				throw new NotSupportedException ("Cannot update " + map.TableName + ": it has no PK");
+			}
+			
+			var q = string.Format ("update {0} set {1} = ? where {2} = ? ", Dbi.Quote (map.TableName), Dbi.Quote (pk.Name), Dbi.Quote (pk.Name));
+			var c = Execute (q, newPK, pk.GetValue (obj));
+			pk.SetValue (obj, newPK);
+			return c;
 		}
 
 		/// <summary>
@@ -634,6 +660,11 @@ namespace Data
 				throw new NotSupportedException ("Don't know about " + clrType);
 			}
 		}
+
+		public override string GetLastInsertIdSql ()
+		{
+			return "select last_insert_id()";
+		}
 	}
 
 	public class SqliteDbi : Dbi
@@ -655,7 +686,7 @@ namespace Data
 				decl += "primary key ";
 			}
 			if (p.IsAutoInc) {
-				decl += "auto_increment ";
+				decl += "autoincrement ";
 			}
 			if (!p.IsNullable) {
 				decl += "not null ";
@@ -685,6 +716,12 @@ namespace Data
 				throw new NotSupportedException ("Don't know about " + clrType);
 			}
 		}
+
+		public override string GetLastInsertIdSql ()
+		{
+			return "select last_insert_rowid()";
+		}
+		
 	}
 
 	public abstract class Dbi
@@ -696,6 +733,8 @@ namespace Data
 		public abstract string GetColumnDeclSql (TableMapping.Column p);
 
 		public abstract string GetColumnSqlType (TableMapping.Column p);
+
+		public abstract string GetLastInsertIdSql ();
 
 		public virtual string GetInsertSql (TableMapping map)
 		{
@@ -878,6 +917,25 @@ namespace Data
 				
 				var text = "(" + leftr.CommandText + " " + GetSqlName (bin) + " " + rightr.CommandText + ")";
 				return new CompileResult { CommandText = text };
+			} else if (expr.NodeType == ExpressionType.Call) {
+				
+				var call = (MethodCallExpression)expr;
+				var args = new CompileResult[call.Arguments.Count];
+				
+				for (var i = 0; i < args.Length; i++) {
+					args[i] = CompileExpr (call.Arguments[i], queryArgs);
+				}
+				
+				var sqlCall = "";
+				
+				if (call.Method.Name == "Like" && args.Length == 2) {
+					sqlCall = "(" + args[0].CommandText + " like " + args[1].CommandText + ")";
+				}
+				else {
+					sqlCall = call.Method.Name.ToLower () + "(" + string.Join (",", args.Select (a => a.CommandText).ToArray ()) + ")";
+				}
+				return new CompileResult { CommandText = sqlCall };
+				
 			} else if (expr.NodeType == ExpressionType.Constant) {
 				var c = (ConstantExpression)expr;
 				queryArgs.Add (c.Value);
@@ -902,7 +960,7 @@ namespace Data
 						throw new NotSupportedException ("Member access failed to compile expression");
 					}
 					if (r.CommandText == "?") {
-						queryArgs.RemoveAt(queryArgs.Count - 1);
+						queryArgs.RemoveAt (queryArgs.Count - 1);
 					}
 					var obj = r.Value;
 					
@@ -930,16 +988,29 @@ namespace Data
 		{
 			var n = expr.NodeType;
 			if (n == ExpressionType.GreaterThan)
-				return ">"; else if (n == ExpressionType.GreaterThanOrEqual)
-				return ">="; else if (n == ExpressionType.LessThan)
-				return "<"; else if (n == ExpressionType.LessThanOrEqual)
-				return "<="; else if (n == ExpressionType.And)
-				return "and"; else if (n == ExpressionType.AndAlso)
-				return "and"; else if (n == ExpressionType.Or)
-				return "or"; else if (n == ExpressionType.OrElse)
-				return "or"; else if (n == ExpressionType.Equal)
-				return "="; else if (n == ExpressionType.NotEqual)
+				return ">";
+			if (n == ExpressionType.GreaterThanOrEqual)
+				return ">=";
+			if (n == ExpressionType.LessThan)
+				return "<";
+			if (n == ExpressionType.LessThanOrEqual)
+				return "<=";
+			if (n == ExpressionType.And)
+				return "and";
+			if (n == ExpressionType.AndAlso)
+				return "and";
+			if (n == ExpressionType.Or)
+				return "or";
+			if (n == ExpressionType.OrElse)
+				return "or";
+			if (n == ExpressionType.Equal)
+				return "=";
+			if (n == ExpressionType.NotEqual)
 				return "!=";
+			if (n == ExpressionType.Subtract)
+				return "-";
+			if (n == ExpressionType.Add)
+				return "+";
 			else
 				throw new System.NotSupportedException ("Cannot get SQL for: " + n.ToString ());
 		}
@@ -1002,6 +1073,13 @@ namespace Data
 				hash += Arguments[0].GetHashCode ();
 			}
 			return hash;
+		}
+	}
+	
+	public static class StringQ {
+		public static bool Like(this string source, string query) {
+			var re = new System.Text.RegularExpressions.Regex(query.Replace("%",".*?"));
+			return re.Match(source).Success;
 		}
 	}
 }
